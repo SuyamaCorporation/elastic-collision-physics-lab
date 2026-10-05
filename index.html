@@ -1,0 +1,305 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Elastic Collision Physics Lab</title>
+<script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-900 min-h-screen">
+<div class="max-w-6xl mx-auto px-4 py-6">
+  <div class="mb-4">
+    <h1 class="text-2xl font-bold text-white">Elastic Collision Physics Lab</h1>
+    <p class="text-gray-400 text-sm mt-1">Click canvas to add balls. Watch them collide with adjustable physics.</p>
+  </div>
+
+  <div class="grid lg:grid-cols-4 gap-4">
+    <!-- Controls -->
+    <div class="lg:col-span-1 grid gap-3">
+      <div class="bg-gray-800 rounded-xl p-4">
+        <h2 class="text-sm font-semibold text-gray-200 mb-3">Physics Settings</h2>
+        <div class="grid gap-3">
+          <div>
+            <div class="flex justify-between text-xs text-gray-400 mb-1">
+              <label for="restitution">Restitution (e)</label>
+              <span id="restitution-val">1.0</span>
+            </div>
+            <input id="restitution" type="range" min="0" max="1" step="0.05" value="1"
+              class="w-full accent-blue-400" oninput="document.getElementById('restitution-val').textContent=parseFloat(this.value).toFixed(2)">
+            <div class="flex justify-between text-xs text-gray-600 mt-0.5"><span>Inelastic</span><span>Elastic</span></div>
+          </div>
+          <div class="flex items-center justify-between">
+            <label class="text-xs text-gray-400" for="gravity-toggle">Gravity</label>
+            <button id="gravity-toggle" onclick="toggleGravity()" class="px-3 py-1 rounded-lg text-xs font-medium bg-green-700 text-green-200 transition-colors" aria-pressed="true">ON</button>
+          </div>
+          <div class="flex items-center justify-between">
+            <label class="text-xs text-gray-400" for="slowmo-toggle">Slow Motion</label>
+            <button id="slowmo-toggle" onclick="toggleSlowmo()" class="px-3 py-1 rounded-lg text-xs font-medium bg-gray-700 text-gray-400 transition-colors" aria-pressed="false">OFF</button>
+          </div>
+          <div class="flex items-center justify-between">
+            <label class="text-xs text-gray-400" for="trails-toggle">Trails</label>
+            <button id="trails-toggle" onclick="toggleTrails()" class="px-3 py-1 rounded-lg text-xs font-medium bg-gray-700 text-gray-400 transition-colors" aria-pressed="false">OFF</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="bg-gray-800 rounded-xl p-4">
+        <h2 class="text-sm font-semibold text-gray-200 mb-3">Add Ball</h2>
+        <div class="grid gap-2">
+          <div>
+            <label class="block text-xs text-gray-400 mb-1" for="newMass">Mass (1–20)</label>
+            <input id="newMass" type="range" min="1" max="20" value="5" class="w-full accent-indigo-400"
+              oninput="document.getElementById('mass-val').textContent=this.value">
+            <div class="text-xs text-gray-400 text-center mt-0.5">Mass: <span id="mass-val">5</span></div>
+          </div>
+          <button onclick="addRandomBall()" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white py-1.5 rounded-lg text-xs font-medium transition-colors">Add Random Ball</button>
+          <button onclick="clearBalls()" class="w-full bg-gray-700 hover:bg-gray-600 text-gray-300 py-1.5 rounded-lg text-xs font-medium transition-colors">Clear All</button>
+        </div>
+      </div>
+
+      <div class="bg-gray-800 rounded-xl p-4">
+        <h2 class="text-sm font-semibold text-gray-200 mb-2">Mass Legend</h2>
+        <div class="grid gap-1">
+          <div class="flex items-center gap-2 text-xs text-gray-400"><div class="w-3 h-3 rounded-full bg-cyan-400"></div>Light (1–4)</div>
+          <div class="flex items-center gap-2 text-xs text-gray-400"><div class="w-3 h-3 rounded-full bg-green-400"></div>Medium (5–9)</div>
+          <div class="flex items-center gap-2 text-xs text-gray-400"><div class="w-3 h-3 rounded-full bg-yellow-400"></div>Heavy (10–14)</div>
+          <div class="flex items-center gap-2 text-xs text-gray-400"><div class="w-3 h-3 rounded-full bg-red-500"></div>Very Heavy (15+)</div>
+        </div>
+        <div class="mt-3 pt-3 border-t border-gray-700">
+          <div id="stats-display" class="text-xs text-gray-400 grid gap-0.5"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Canvas -->
+    <div class="lg:col-span-3">
+      <canvas id="canvas" class="w-full rounded-xl border border-gray-700 cursor-crosshair block" style="touch-action:none"
+        aria-label="Physics simulation canvas"></canvas>
+      <p class="text-xs text-gray-500 mt-2 text-center">Click or tap to add ball at that position</p>
+    </div>
+  </div>
+</div>
+
+<script>
+const canvas = document.getElementById('canvas');
+const ctx = canvas.getContext('2d');
+let balls = [];
+let gravity = true;
+let slowmo = false;
+let trails = false;
+let lastTime = null;
+let animId = null;
+let trailCanvas = null;
+let trailCtx = null;
+
+const G = 300;
+
+function massToColor(m) {
+  if(m<=4) return `hsl(190,80%,${60-m*3}%)`;
+  if(m<=9) return `hsl(140,70%,${55-m}%)`;
+  if(m<=14) return `hsl(45,90%,${60-m}%)`;
+  return `hsl(${360-m*4},80%,55%)`;
+}
+
+function massToRadius(m) { return Math.max(10, 5+m*2); }
+
+function resizeCanvas() {
+  const rect = canvas.parentElement.getBoundingClientRect();
+  const w = Math.floor(rect.width);
+  const h = Math.max(400, Math.floor(window.innerHeight*0.65));
+  if(canvas.width===w && canvas.height===h) return;
+  canvas.width=w; canvas.height=h;
+  if(trailCanvas){trailCanvas.width=w;trailCanvas.height=h;}
+}
+
+function addBall(x,y,mass) {
+  const r = massToRadius(mass);
+  const angle = Math.random()*Math.PI*2;
+  const speed = 50+Math.random()*150;
+  balls.push({
+    x:Math.max(r,Math.min(canvas.width-r,x)),
+    y:Math.max(r,Math.min(canvas.height-r,y)),
+    vx:Math.cos(angle)*speed, vy:Math.sin(angle)*speed,
+    mass, r, color:massToColor(mass)
+  });
+}
+
+function addRandomBall() {
+  const mass = parseInt(document.getElementById('newMass').value);
+  const r = massToRadius(mass);
+  addBall(r+Math.random()*(canvas.width-2*r), r+Math.random()*(canvas.height*0.3), mass);
+}
+
+function clearBalls() { balls=[]; }
+
+function toggleGravity() {
+  gravity=!gravity;
+  const btn=document.getElementById('gravity-toggle');
+  btn.textContent=gravity?'ON':'OFF';
+  btn.className=`px-3 py-1 rounded-lg text-xs font-medium transition-colors ${gravity?'bg-green-700 text-green-200':'bg-gray-700 text-gray-400'}`;
+  btn.setAttribute('aria-pressed', gravity);
+}
+
+function toggleSlowmo() {
+  slowmo=!slowmo;
+  const btn=document.getElementById('slowmo-toggle');
+  btn.textContent=slowmo?'ON':'OFF';
+  btn.className=`px-3 py-1 rounded-lg text-xs font-medium transition-colors ${slowmo?'bg-purple-700 text-purple-200':'bg-gray-700 text-gray-400'}`;
+  btn.setAttribute('aria-pressed', slowmo);
+}
+
+function toggleTrails() {
+  trails=!trails;
+  const btn=document.getElementById('trails-toggle');
+  btn.textContent=trails?'ON':'OFF';
+  btn.className=`px-3 py-1 rounded-lg text-xs font-medium transition-colors ${trails?'bg-orange-700 text-orange-200':'bg-gray-700 text-gray-400'}`;
+  btn.setAttribute('aria-pressed', trails);
+  if(!trails && trailCtx) trailCtx.clearRect(0,0,trailCanvas.width,trailCanvas.height);
+}
+
+function update(dt) {
+  const e = parseFloat(document.getElementById('restitution').value);
+  const speed = slowmo ? 0.25 : 1;
+  dt *= speed;
+
+  balls.forEach(b => {
+    if(gravity) b.vy += G * dt;
+    b.x += b.vx * dt;
+    b.y += b.vy * dt;
+
+    // Wall collisions
+    if(b.x-b.r < 0) { b.x=b.r; b.vx=Math.abs(b.vx)*e; }
+    if(b.x+b.r > canvas.width) { b.x=canvas.width-b.r; b.vx=-Math.abs(b.vx)*e; }
+    if(b.y-b.r < 0) { b.y=b.r; b.vy=Math.abs(b.vy)*e; }
+    if(b.y+b.r > canvas.height) { b.y=canvas.height-b.r; b.vy=-Math.abs(b.vy)*e; if(Math.abs(b.vy)<10) b.vy=0; }
+  });
+
+  // Ball-ball collisions
+  for(let i=0;i<balls.length;i++) {
+    for(let j=i+1;j<balls.length;j++) {
+      const a=balls[i], b=balls[j];
+      const dx=b.x-a.x, dy=b.y-a.y;
+      const dist=Math.sqrt(dx*dx+dy*dy);
+      const minDist=a.r+b.r;
+      if(dist<minDist && dist>0.001) {
+        // Separate
+        const overlap=minDist-dist;
+        const nx=dx/dist, ny=dy/dist;
+        const massSum=a.mass+b.mass;
+        a.x-=nx*overlap*(b.mass/massSum);
+        a.y-=ny*overlap*(b.mass/massSum);
+        b.x+=nx*overlap*(a.mass/massSum);
+        b.y+=ny*overlap*(a.mass/massSum);
+        // Impulse
+        const dvx=b.vx-a.vx, dvy=b.vy-a.vy;
+        const dvDotN=dvx*nx+dvy*ny;
+        if(dvDotN<0) {
+          const impulse=(1+e)*dvDotN/(massSum/a.mass/b.mass+1/a.mass+1/b.mass) * (2/(1/a.mass+1/b.mass));
+          // Simplified: J = -(1+e)*dvn / (1/m1+1/m2)
+          const J = -(1+e)*dvDotN/(1/a.mass+1/b.mass);
+          a.vx -= J/a.mass*nx; a.vy -= J/a.mass*ny;
+          b.vx += J/b.mass*nx; b.vy += J/b.mass*ny;
+        }
+      }
+    }
+  }
+}
+
+function draw() {
+  // Trails
+  if(trails) {
+    if(!trailCanvas) {
+      trailCanvas=document.createElement('canvas');
+      trailCanvas.width=canvas.width; trailCanvas.height=canvas.height;
+      trailCtx=trailCanvas.getContext('2d');
+    }
+    balls.forEach(b=>{
+      trailCtx.beginPath();
+      trailCtx.arc(b.x,b.y,Math.max(1,b.r*0.3),0,Math.PI*2);
+      trailCtx.fillStyle=b.color+'66';
+      trailCtx.fill();
+    });
+    // Fade
+    trailCtx.fillStyle='rgba(17,24,39,0.15)';
+    trailCtx.fillRect(0,0,trailCanvas.width,trailCanvas.height);
+  }
+
+  ctx.fillStyle='#111827';
+  ctx.fillRect(0,0,canvas.width,canvas.height);
+
+  if(trails && trailCanvas) ctx.drawImage(trailCanvas,0,0);
+
+  // Grid dots
+  ctx.fillStyle='#1f2937';
+  for(let x=20;x<canvas.width;x+=40) for(let y=20;y<canvas.height;y+=40) {
+    ctx.beginPath(); ctx.arc(x,y,1,0,Math.PI*2); ctx.fill();
+  }
+
+  balls.forEach(b => {
+    // Shadow
+    const grad = ctx.createRadialGradient(b.x-b.r*0.3,b.y-b.r*0.3,b.r*0.1,b.x,b.y,b.r);
+    grad.addColorStop(0,'white');
+    grad.addColorStop(0.3,b.color);
+    grad.addColorStop(1,'rgba(0,0,0,0.7)');
+    ctx.beginPath(); ctx.arc(b.x,b.y,b.r,0,Math.PI*2);
+    ctx.fillStyle=grad; ctx.fill();
+    ctx.strokeStyle=b.color+'88'; ctx.lineWidth=1.5;
+    ctx.stroke();
+    // Mass label
+    if(b.r>14){
+      ctx.fillStyle='rgba(255,255,255,0.9)';
+      ctx.font=`bold ${Math.max(9,b.r*0.6)}px sans-serif`;
+      ctx.textAlign='center'; ctx.textBaseline='middle';
+      ctx.fillText(b.mass,b.x,b.y);
+    }
+  });
+
+  // Stats
+  const totalKE=balls.reduce((s,b)=>s+0.5*b.mass*(b.vx*b.vx+b.vy*b.vy),0);
+  document.getElementById('stats-display').innerHTML=
+    `<div>Balls: ${balls.length}</div><div>Total KE: ${Math.round(totalKE)}</div>${slowmo?'<div class="text-purple-400">Slow Mo Active</div>':''}`;
+}
+
+function loop(ts) {
+  if(!lastTime) lastTime=ts;
+  const dt=Math.min((ts-lastTime)/1000, 0.05);
+  lastTime=ts;
+  update(dt);
+  draw();
+  animId=requestAnimationFrame(loop);
+}
+
+canvas.addEventListener('click', e=>{
+  const rect=canvas.getBoundingClientRect();
+  const scaleX=canvas.width/rect.width, scaleY=canvas.height/rect.height;
+  const x=(e.clientX-rect.left)*scaleX, y=(e.clientY-rect.top)*scaleY;
+  const mass=parseInt(document.getElementById('newMass').value);
+  addBall(x,y,mass);
+});
+
+canvas.addEventListener('touchstart', e=>{
+  e.preventDefault();
+  const rect=canvas.getBoundingClientRect();
+  const scaleX=canvas.width/rect.width, scaleY=canvas.height/rect.height;
+  Array.from(e.changedTouches).forEach(t=>{
+    const x=(t.clientX-rect.left)*scaleX, y=(t.clientY-rect.top)*scaleY;
+    const mass=parseInt(document.getElementById('newMass').value);
+    addBall(x,y,mass);
+  });
+},{passive:false});
+
+window.addEventListener('resize',()=>{resizeCanvas();if(trailCanvas){trailCanvas.width=canvas.width;trailCanvas.height=canvas.height;}});
+
+window.addEventListener('load',()=>{
+  resizeCanvas();
+  // Add starter balls
+  for(let i=0;i<6;i++){
+    const mass=Math.ceil(Math.random()*15)+1;
+    const r=massToRadius(mass);
+    addBall(r+Math.random()*(canvas.width-2*r),r+Math.random()*(canvas.height*0.5),mass);
+  }
+  animId=requestAnimationFrame(loop);
+});
+</script>
+</body>
+</html>
